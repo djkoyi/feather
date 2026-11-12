@@ -263,7 +263,7 @@ struct InstallPreviewView: View {
 		// Give LaunchServices a moment to register the new bundle.
 		for _ in 0..<6 {
 			let installed = UIApplication.installedVersion(for: bundleID)
-			Logger.misc.info("Install check \(bundleID): installed=\(installed ?? "unknown") expected=\(expected)")
+			Logger.misc.info("Install check \(bundleID, privacy: .public): installed=\(installed ?? "unknown", privacy: .public) expected=\(expected, privacy: .public)")
 			guard let installed else {
 				return nil
 			}
