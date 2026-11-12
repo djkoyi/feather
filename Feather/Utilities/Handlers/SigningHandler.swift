@@ -444,16 +444,22 @@ extension SigningHandler {
 			throw SigningFileHandlerError.appNotFound
 		}
 		
-		guard 
-			let binaryProfile = LCGetMachOEntitlements(appBinPath.path),
-			let binaryEntitlementsDict = (try? PropertyListSerialization.propertyList(
-				from: binaryProfile,
-				options: [],
-				format: nil
-			)) as? [String: Any]
-		else {
-			return
-		}
+		// Apps without embedded entitlements still need the profile's wildcards
+		// replaced, otherwise "TEAMID.*" ends up as application-identifier and iOS
+		// rejects in-place upgrades of an app installed with its real identifier.
+		let binaryEntitlementsDict: [String: Any] = {
+			guard
+				let binaryProfile = LCGetMachOEntitlements(appBinPath.path),
+				let dict = (try? PropertyListSerialization.propertyList(
+					from: binaryProfile,
+					options: [],
+					format: nil
+				)) as? [String: Any]
+			else {
+				return [:]
+			}
+			return dict
+		}()
 		
 		guard 
 			let cert = self.appCertificate, 

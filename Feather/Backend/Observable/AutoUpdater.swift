@@ -196,6 +196,10 @@ final class AutoUpdater: ObservableObject {
 		options.appIdentifier = installedIdentifier
 		options.post_installAppAfterSigned = false
 		options.post_deleteAppAfterSigned = false
+		// Use the real application identifier (TEAMID.bundle) instead of the
+		// profile wildcard: iOS only upgrades in place when it matches.
+		options.mergeEntitlements = true
+		options.appEntitlementsFile = nil
 
 		let signer = SigningHandler(app: imported, options: options)
 		signer.appCertificate = certificate
