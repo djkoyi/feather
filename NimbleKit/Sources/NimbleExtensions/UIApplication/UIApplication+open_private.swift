@@ -70,4 +70,39 @@ extension UIApplication {
 
 		return nil
 	}
+
+	/// Returns the version (CFBundleShortVersionString) iOS reports for an installed app.
+	/// - Parameter identifier: Bundle identifier
+	/// - Returns: Installed version, or `nil` when the app is not installed or iOS does not expose it
+	static public func installedVersion(for identifier: String) -> String? {
+		let classNameBase64 = "TFNBcHBsaWNhdGlvblByb3h5" // LSApplicationProxy
+		let proxySelectorBase64 = "YXBwbGljYXRpb25Qcm94eUZvcklkZW50aWZpZXI6" // applicationProxyForIdentifier:
+
+		guard
+			let className = String(data: Data(base64Encoded: classNameBase64)!, encoding: .utf8),
+			let proxySelector = String(data: Data(base64Encoded: proxySelectorBase64)!, encoding: .utf8),
+			let proxyClass = NSClassFromString(className) as? NSObject.Type,
+			proxyClass.responds(to: NSSelectorFromString(proxySelector)),
+			let proxy = proxyClass.perform(
+				NSSelectorFromString(proxySelector),
+				with: identifier
+			)?.takeUnretainedValue() as? NSObject
+		else { return nil }
+
+		if
+			proxy.responds(to: NSSelectorFromString("isInstalled")),
+			let installed = proxy.value(forKey: "isInstalled") as? Bool,
+			!installed
+		{
+			return nil
+		}
+
+		guard
+			proxy.responds(to: NSSelectorFromString("shortVersionString")),
+			let version = proxy.value(forKey: "shortVersionString") as? String,
+			!version.isEmpty
+		else { return nil }
+
+		return version
+	}
 }
