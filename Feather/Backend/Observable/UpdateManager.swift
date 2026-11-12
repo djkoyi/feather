@@ -20,17 +20,28 @@ struct AppUpdate: Identifiable, Equatable {
 	let downloadURL: URL
 	let sourceURL: URL
 	let sourceProvenance: SourceAppProvenance
+	/// The local copy is a signed app (the one that is installed on the device).
+	let isSigned: Bool
 }
 
 @MainActor
 final class UpdateManager: ObservableObject {
 	static let shared = UpdateManager()
 	
+	nonisolated static let autoCheckEnabledKey = "Feather.autoCheckUpdates"
+	
+	/// Automatic checks (on open and in the background). On by default.
+	nonisolated static var isAutoCheckEnabled: Bool {
+		UserDefaults.standard.object(forKey: autoCheckEnabledKey) as? Bool ?? true
+	}
+	
 	typealias RepositoryDataHandler = Result<ASRepository, Error>
 	
 	@Published private(set) var updates: [String: AppUpdate] = [:]
 	@Published private(set) var isChecking = false
 	@Published private(set) var lastCheckedDate: Date?
+	/// Bundle identifiers that have a signed copy in the library.
+	private var _signedBundleIDs: Set<String> = []
 	
 	private let _dataService = NBFetchService()
 	
@@ -43,7 +54,8 @@ final class UpdateManager: ObservableObject {
 	
 	func checkForUpdates(
 		sources: [AltSource],
-		localApps: [AppInfoPresentable]
+		localApps: [AppInfoPresentable],
+		notify: Bool = true
 	) async {
 		guard !isChecking else { return }
 		
@@ -54,7 +66,64 @@ final class UpdateManager: ObservableObject {
 		}
 		
 		let repositories = await _fetchRepositories(from: sources)
+		_signedBundleIDs = Set(localApps.filter(\.isSigned).compactMap(\.identifier))
 		updates = _findUpdates(repositories: repositories, localApps: localApps)
+		_signedBundleIDs.formUnion(updates.values.filter(\.isSigned).map(\.bundleIdentifier))
+
+		if notify {
+			await UpdateNotifier.shared.notify(about: actionableUpdates)
+		} else {
+			UpdateNotifier.shared.refreshBadge(count: distinctUpdateCount)
+		}
+		AutoUpdater.shared.didFinishCheck()
+	}
+
+	/// Same check without a view: reads sources and apps straight from Core Data.
+	/// Used at launch, when returning to the foreground and from background refresh.
+	func checkForUpdatesUsingStorage(notify: Bool = true) async {
+		let context = Storage.shared.context
+		let signedRequest: NSFetchRequest<Signed> = Signed.fetchRequest()
+		let importedRequest: NSFetchRequest<Imported> = Imported.fetchRequest()
+		let signed = (try? context.fetch(signedRequest)) ?? []
+		let imported = (try? context.fetch(importedRequest)) ?? []
+		let localApps = signed.map { $0 as AppInfoPresentable } + imported.map { $0 as AppInfoPresentable }
+
+		await checkForUpdates(
+			sources: Storage.shared.getSources(),
+			localApps: localApps,
+			notify: notify
+		)
+	}
+
+	/// Called after an app was updated so its badge/notification disappear right away.
+	func removeUpdate(localUUID: String) {
+		updates[localUUID] = nil
+		UpdateNotifier.shared.refreshBadge(count: distinctUpdateCount)
+	}
+
+	/// One update per app, the way AltStore shows them. When an app has a signed
+	/// copy (the one installed on the device) only signed copies count; imported
+	/// copies of that app are just cached IPAs and are not announced or auto-updated.
+	var actionableUpdates: [AppUpdate] {
+		var byBundle: [String: AppUpdate] = [:]
+		for update in updates.values.sorted(by: { $0.localUUID < $1.localUUID }) {
+			if update.isSigned {
+				if byBundle[update.bundleIdentifier]?.isSigned != true {
+					byBundle[update.bundleIdentifier] = update
+				}
+			} else if
+				!_signedBundleIDs.contains(update.bundleIdentifier),
+				byBundle[update.bundleIdentifier] == nil
+			{
+				byBundle[update.bundleIdentifier] = update
+			}
+		}
+		return byBundle.values.sorted { $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending }
+	}
+	
+	/// Number of apps with an actionable update (badge and "Update All").
+	var distinctUpdateCount: Int {
+		actionableUpdates.count
 	}
 	
 	private func _fetchRepositories(from sources: [AltSource]) async -> [(AltSource, ASRepository)] {
@@ -113,7 +182,7 @@ final class UpdateManager: ObservableObject {
 			
 			let sourceAppIdentifier: String
 			let sourceAppVersion: String?
-			let storedSourceURL: URL
+			let storedSourceURL: URL?
 			if let directMetadata = metadataByUUID[localUUID] {
 				guard
 					let metadataSourceAppIdentifier = directMetadata.sourceAppIdentifier,
@@ -152,6 +221,12 @@ final class UpdateManager: ObservableObject {
 				sourceAppIdentifier = localIdentifier
 				sourceAppVersion = localApp.version
 				storedSourceURL = localSourceURL
+			} else if let localIdentifier = localApp.identifier {
+				// Imported from a URL or Files: no source is linked. Like AltStore,
+				// look the bundle identifier up in every source.
+				sourceAppIdentifier = localIdentifier
+				sourceAppVersion = localApp.version
+				storedSourceURL = nil
 			} else {
 				continue
 			}
@@ -161,8 +236,10 @@ final class UpdateManager: ObservableObject {
 					continue
 				}
 				
-				guard _matchesStoredRepository(storedSourceURL: storedSourceURL, sourceURL: sourceURL) else {
-					continue
+				if let storedSourceURL {
+					guard _matchesStoredRepository(storedSourceURL: storedSourceURL, sourceURL: sourceURL) else {
+						continue
+					}
 				}
 				
 				guard let remoteApp = repository.apps.first(where: { $0.id == sourceAppIdentifier }) else {
@@ -173,7 +250,8 @@ final class UpdateManager: ObservableObject {
 					continue
 				}
 				
-				guard remoteVersion != sourceAppVersion else {
+				// Only newer versions count; an older build in the source is not an update.
+				guard Self.isVersion(remoteVersion, newerThan: sourceAppVersion ?? localApp.version) else {
 					continue
 				}
 				
@@ -198,13 +276,41 @@ final class UpdateManager: ObservableObject {
 					bundleIdentifier: sourceAppIdentifier,
 					downloadURL: downloadURL,
 					sourceURL: sourceURL,
-					sourceProvenance: provenance
+					sourceProvenance: provenance,
+					isSigned: localApp.isSigned
 				)
 				break
 			}
 		}
 		
 		return foundUpdates
+	}
+	
+	/// Numeric, component-wise comparison for plain versions ("2.10" > "2.9",
+	/// "1.0" == "1.0.0"). When either side has letters (betas, nightly hashes)
+	/// there is no reliable order, so any different version counts as an update.
+	nonisolated static func isVersion(_ remote: String, newerThan local: String?) -> Bool {
+		let remote = remote.trimmingCharacters(in: .whitespaces)
+		guard let local = local?.trimmingCharacters(in: .whitespaces), !local.isEmpty else { return true }
+		guard remote != local else { return false }
+		
+		let isPlain: (String) -> Bool = { version in
+			!version.isEmpty && version.allSatisfy { $0.isNumber || $0 == "." }
+		}
+		guard isPlain(remote), isPlain(local) else {
+			return true
+		}
+		
+		let remoteParts = remote.split(separator: ".").map { $0.trimmingPrefixZeros }
+		let localParts = local.split(separator: ".").map { $0.trimmingPrefixZeros }
+		for index in 0..<max(remoteParts.count, localParts.count) {
+			let r = index < remoteParts.count ? remoteParts[index] : "0"
+			let l = index < localParts.count ? localParts[index] : "0"
+			// Compare as digit strings: no overflow for very long build numbers.
+			if r.count != l.count { return r.count > l.count }
+			if r != l { return r > l }
+		}
+		return false
 	}
 	
 	private func _matchesStoredRepository(
@@ -253,4 +359,12 @@ private struct SourceMetadataCandidate {
 	let appUUID: String
 	let app: AppInfoPresentable
 	let metadata: AppSourceMetadata
+}
+
+private extension Substring {
+	/// "007" -> "7", "0" -> "0"
+	var trimmingPrefixZeros: String {
+		let trimmed = drop(while: { $0 == "0" })
+		return trimmed.isEmpty ? "0" : String(trimmed)
+	}
 }

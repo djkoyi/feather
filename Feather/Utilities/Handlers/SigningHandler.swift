@@ -13,6 +13,8 @@ import OSLog
 final class SigningHandler: NSObject {
 	private let _fileManager = FileManager.default
 	private let _uuid = UUID().uuidString
+	/// UUID of the signed app once `modify()` finishes.
+	var uuid: String { _uuid }
 	private var _movedAppPath: URL?
 	// using uuid string is the best way to find the
 	// app we want to sign, it does not matter what
@@ -148,6 +150,8 @@ final class SigningHandler: NSObject {
 		try? _fileManager.removeItem(at: _uniqueWorkDir)
 	}
 	
+	// Writes to the main (view) Core Data context: keep it on the main thread.
+	@MainActor
 	func addToDatabase() async throws {
 		let app = try await _directory()
 		

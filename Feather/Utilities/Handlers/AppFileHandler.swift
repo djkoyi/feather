@@ -12,6 +12,8 @@ import SwiftUI
 final class AppFileHandler: NSObject, @unchecked Sendable {
 	private let _fileManager = FileManager.default
 	private let _uuid = UUID().uuidString
+	/// UUID of the imported app once `addToDatabase()` finishes.
+	var uuid: String { _uuid }
 	private let _uniqueWorkDir: URL
 	var uniqueWorkDirPayload: URL?
 
@@ -105,6 +107,8 @@ final class AppFileHandler: NSObject, @unchecked Sendable {
 		try? _fileManager.removeItem(at: _uniqueWorkDir)
 	}
 	
+	// Writes to the main (view) Core Data context: keep it on the main thread.
+	@MainActor
 	func addToDatabase() async throws {
 		let app = try await _directory()
 		

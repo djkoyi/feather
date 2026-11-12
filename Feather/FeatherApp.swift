@@ -17,7 +17,12 @@ struct FeatherApp: App {
 	let heartbeat = HeartbeatManager.shared
 	
 	@StateObject var downloadManager = DownloadManager.shared
+	@StateObject var autoUpdater = AutoUpdater.shared
+	@Environment(\.scenePhase) private var _scenePhase
 	let storage = Storage.shared
+	
+	/// Minimum time between automatic foreground checks.
+	private let _foregroundCheckInterval: TimeInterval = 60 * 10
 	
 	var body: some Scene {
 		WindowGroup {
@@ -30,6 +35,16 @@ struct FeatherApp: App {
 					.transition(.move(edge: .top).combined(with: .opacity))
 			}
 			.animation(.smooth, value: downloadManager.manualDownloads.description)
+			// AltServer-style updates: signed updates are installed from here,
+			// whatever tab is open.
+			.sheet(item: $autoUpdater.installItem, onDismiss: autoUpdater.installDismissed) { app in
+				InstallPreviewView(app: app.base)
+					.presentationDetents([.height(200)])
+					.presentationDragIndicator(.visible)
+			}
+			.onChange(of: _scenePhase) { phase in
+				_handleScenePhase(phase)
+			}
 			.onReceive(NotificationCenter.default.publisher(for: .heartbeatInvalidHost)) { _ in
 				DispatchQueue.main.async {
 					UIAlertController.showAlertWithOk(
@@ -46,6 +61,25 @@ struct FeatherApp: App {
 				
 				UIApplication.topViewController()?.view.window?.tintColor = UIColor(Color(hex: UserDefaults.standard.string(forKey: "Feather.userTintColor") ?? "#848ef9"))
 			}
+		}
+	}
+	
+	private func _handleScenePhase(_ phase: ScenePhase) {
+		switch phase {
+		case .active:
+			guard UpdateManager.isAutoCheckEnabled else { return }
+			let last = UpdateManager.shared.lastCheckedDate ?? .distantPast
+			guard Date().timeIntervalSince(last) > _foregroundCheckInterval else { return }
+			Task { @MainActor in
+				await UpdateNotifier.shared.requestAuthorizationIfNeeded()
+				await UpdateManager.shared.checkForUpdatesUsingStorage(notify: true)
+			}
+		case .background:
+			#if !targetEnvironment(macCatalyst)
+			UpdateRefreshScheduler.schedule()
+			#endif
+		default:
+			break
 		}
 	}
 	
@@ -160,6 +194,10 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 		_createDocumentsDirectories()
 		ResetView.clearWorkCache()
 		_addDefaultCertificates()
+		UpdateNotifier.shared.configure()
+		#if !targetEnvironment(macCatalyst)
+		UpdateRefreshScheduler.register()
+		#endif
 		return true
 	}
 	

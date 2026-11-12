@@ -14,6 +14,7 @@ struct ExtendedTabbarView: View {
 	@Environment(\.horizontalSizeClass) var horizontalSizeClass
 	@AppStorage("Feather.tabCustomization") var customization = TabViewCustomization()
 	@StateObject var viewModel = SourcesViewModel.shared
+	@ObservedObject private var _updateManager = UpdateManager.shared
 	
 	@State private var _isAddingPresenting = false
 	
@@ -29,6 +30,7 @@ struct ExtendedTabbarView: View {
 				Tab(tab.title, systemImage: tab.icon) {
 					TabEnum.view(for: tab)
 				}
+				.badge(tab == .library ? _updateManager.distinctUpdateCount : 0)
 			}
 			
 			ForEach(TabEnum.customizableTabs, id: \.hashValue) { tab in

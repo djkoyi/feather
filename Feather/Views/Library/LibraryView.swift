@@ -155,6 +155,21 @@ struct LibraryView: View {
 						_bulkDeleteSelectedApps()
 					}
 				} else {
+					if updateManager.distinctUpdateCount > 0 {
+						ToolbarItem(placement: .topBarLeading) {
+							Button {
+								AutoUpdater.shared.updateAll()
+							} label: {
+								Label(
+									.localized("Update All") + " (\(updateManager.distinctUpdateCount))",
+									systemImage: "arrow.down.circle"
+								)
+								.labelStyle(.titleAndIcon)
+							}
+							.accessibilityLabel(.localized("Update All"))
+						}
+					}
+					
 					ToolbarItem(placement: .topBarTrailing) {
 						Button {
 							Task {
