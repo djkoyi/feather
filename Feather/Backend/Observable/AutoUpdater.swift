@@ -32,12 +32,25 @@ final class AutoUpdater: ObservableObject {
 		}
 	}
 
+	/// Work items: update from a source, or sign + install what is in the library.
+	private enum Job {
+		case update(AppUpdate)
+		case install(uuid: String, name: String)
+		
+		var uuid: String {
+			switch self {
+			case .update(let update): update.localUUID
+			case .install(let uuid, _): uuid
+			}
+		}
+	}
+	
 	/// Phase of each local app (keyed by the local UUID) being updated.
 	@Published private(set) var phases: [String: Phase] = [:]
 	/// Signed app waiting to be installed; presented at the app root.
 	@Published var installItem: AnyApp?
 
-	private var _queue: [AppUpdate] = []
+	private var _queue: [Job] = []
 	private var _isProcessing = false
 	private var _installQueue: [AnyApp] = []
 	private var _pendingNotificationUUID: String?
@@ -53,7 +66,17 @@ final class AutoUpdater: ObservableObject {
 	func update(_ update: AppUpdate) {
 		guard phases[update.localUUID]?.isActive != true else { return }
 		phases[update.localUUID] = .queued
-		_queue.append(update)
+		_queue.append(.update(update))
+		_processNext()
+	}
+	
+	/// AltServer-style install: always signs automatically (same certificate as the
+	/// app, or the default one, and the real application identifier) and installs.
+	/// Works the same for imported and signed apps.
+	func signAndInstall(_ app: AppInfoPresentable) {
+		guard let uuid = app.uuid, phases[uuid]?.isActive != true else { return }
+		phases[uuid] = .queued
+		_queue.append(.install(uuid: uuid, name: app.name ?? ""))
 		_processNext()
 	}
 
@@ -122,14 +145,27 @@ final class AutoUpdater: ObservableObject {
 
 		Task { @MainActor in
 			do {
-				try await _run(next)
-				phases[next.localUUID] = nil
+				switch next {
+				case .update(let update): try await _run(update)
+				case .install(let uuid, _): try await _runInstall(uuid: uuid)
+				}
+				phases[next.uuid] = nil
 			} catch {
-				Logger.misc.error("Auto update failed for \(next.bundleIdentifier): \(error.localizedDescription)")
-				phases[next.localUUID] = .failed(error.localizedDescription)
+				Logger.misc.error("Auto sign/update failed for \(next.uuid): \(error.localizedDescription)")
+				phases[next.uuid] = .failed(error.localizedDescription)
+				let title: String
+				let subject: String
+				switch next {
+				case .update(let update):
+					title = .localized("Update Failed")
+					subject = "\(update.appName) \(update.remoteVersion)"
+				case .install(_, let name):
+					title = .localized("Install")
+					subject = name
+				}
 				UIAlertController.showAlertWithOk(
-					title: .localized("Update Failed"),
-					message: "\(next.appName) \(next.remoteVersion)\n\(error.localizedDescription)"
+					title: title,
+					message: "\(subject)\n\(error.localizedDescription)"
 				)
 			}
 			_isProcessing = false
@@ -143,26 +179,18 @@ final class AutoUpdater: ObservableObject {
 		guard let localApp = _app(uuid: update.localUUID) else {
 			throw AutoUpdateError.localAppMissing
 		}
-
-		// Resolve everything we need from the installed copy before deleting it.
-		let wasSigned = localApp.isSigned
+		
+		// Resolve everything we need from the current copy before deleting it.
 		let installedIdentifier = localApp.identifier
-		let certificate = wasSigned ? _certificate(for: localApp) : nil
-		if wasSigned {
-			guard let certificate else { throw AutoUpdateError.noCertificate }
-			if certificate.revoked { throw AutoUpdateError.certificateRevoked }
-			if let expiration = certificate.expiration, expiration < Date() {
-				throw AutoUpdateError.certificateExpired
-			}
-		}
-
+		let certificate = try _validCertificate(for: localApp)
+		
 		// 1. Download
 		phases[update.localUUID] = .downloading(0)
 		let ipa = try await _download(update.downloadURL) { [weak self] progress in
 			self?.phases[update.localUUID] = .downloading(progress)
 		}
 		defer { try? FileManager.default.removeItem(at: ipa.deletingLastPathComponent()) }
-
+		
 		// 2. Import (keeps the source metadata so future checks keep working)
 		phases[update.localUUID] = .importing
 		let importer = AppFileHandler(file: ipa, sourceProvenance: update.sourceProvenance)
@@ -176,32 +204,67 @@ final class AutoUpdater: ObservableObject {
 			try? await importer.clean()
 			throw error
 		}
-
+		
 		guard let imported = _app(uuid: importer.uuid) else {
 			throw AutoUpdateError.importFailed
 		}
-
-		// Imported (unsigned) apps: replace the old copy and stop here.
-		guard wasSigned else {
-			Storage.shared.deleteApp(for: localApp)
-			_finish(update)
-			return
-		}
-
-		// 3. Sign with the same certificate and the same bundle identifier,
-		//    so iOS updates the installed app in place and keeps its data.
+		
+		// 3. Sign automatically, like AltServer: same certificate and the same
+		//    bundle identifier, so iOS updates the installed app in place.
 		phases[update.localUUID] = .signing
+		let signed: AppInfoPresentable
+		do {
+			signed = try await _sign(imported, identifier: installedIdentifier, certificate: certificate)
+		} catch {
+			Storage.shared.deleteApp(for: imported)
+			throw error
+		}
+		
+		// The intermediate copy and the old one are replaced by the signed update.
+		Storage.shared.deleteApp(for: imported)
+		Storage.shared.deleteApp(for: localApp)
+		_finish(update)
+		
+		// 4. Install
+		_enqueueInstall(signed)
+	}
+	
+	private func _runInstall(uuid: String) async throws {
+		guard let app = _app(uuid: uuid) else {
+			throw AutoUpdateError.localAppMissing
+		}
+		
+		let certificate = try _validCertificate(for: app)
+		
+		phases[uuid] = .signing
+		let signed = try await _sign(app, identifier: app.identifier, certificate: certificate)
+		
+		// A re-signed copy replaces the previous signed one; imported apps are
+		// kept unless the user chose to delete them after signing.
+		if app.isSigned || OptionsManager.shared.options.post_deleteAppAfterSigned {
+			Storage.shared.deleteApp(for: app)
+		}
+		
+		_enqueueInstall(signed)
+	}
+	
+	/// Signs with the given certificate and the real application identifier
+	/// (TEAMID.bundle, not the profile wildcard) and returns the new signed copy.
+	private func _sign(
+		_ app: AppInfoPresentable,
+		identifier: String?,
+		certificate: CertificatePair
+	) async throws -> AppInfoPresentable {
 		var options = OptionsManager.shared.options
 		options.signingOption = .default
-		options.appIdentifier = installedIdentifier
+		options.appIdentifier = identifier
 		options.post_installAppAfterSigned = false
 		options.post_deleteAppAfterSigned = false
-		// Use the real application identifier (TEAMID.bundle) instead of the
-		// profile wildcard: iOS only upgrades in place when it matches.
+		// iOS only upgrades in place when the application-identifier matches.
 		options.mergeEntitlements = true
 		options.appEntitlementsFile = nil
-
-		let signer = SigningHandler(app: imported, options: options)
+		
+		let signer = SigningHandler(app: app, options: options)
 		signer.appCertificate = certificate
 		do {
 			try await signer.copy()
@@ -213,22 +276,28 @@ final class AutoUpdater: ObservableObject {
 			if let broken = _app(uuid: signer.uuid) {
 				Storage.shared.deleteApp(for: broken)
 			}
-			Storage.shared.deleteApp(for: imported)
 			throw error
 		}
-
-		// The unsigned intermediate copy and the old signed copy are no longer needed.
-		Storage.shared.deleteApp(for: imported)
-		Storage.shared.deleteApp(for: localApp)
-		_finish(update)
-
-		// 4. Install
+		
 		guard let signed = _app(uuid: signer.uuid) else {
 			throw AutoUpdateError.signFailed
 		}
-		_enqueueInstall(signed)
+		return signed
 	}
-
+	
+	private func _validCertificate(for app: AppInfoPresentable) throws -> CertificatePair {
+		guard let certificate = _certificate(for: app) else {
+			throw AutoUpdateError.noCertificate
+		}
+		if certificate.revoked {
+			throw AutoUpdateError.certificateRevoked
+		}
+		if let expiration = certificate.expiration, expiration < Date() {
+			throw AutoUpdateError.certificateExpired
+		}
+		return certificate
+	}
+	
 	private func _finish(_ update: AppUpdate) {
 		UpdateManager.shared.removeUpdate(localUUID: update.localUUID)
 		UpdateNotifier.shared.clearDelivered(for: update.bundleIdentifier)

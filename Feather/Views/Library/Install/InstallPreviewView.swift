@@ -212,6 +212,10 @@ struct InstallPreviewView: View {
 
 		Task.detached(priority: .background) {
 			var hasStarted = false
+			let pollingStart = Date()
+			// iOS reports progress as soon as it accepts the app; no progress at all
+			// means it refused it (unsigned app, signature that does not match...).
+			let noStartTimeout: TimeInterval = 60
 
 			while !Task.isCancelled {
 				let rawProgress = await UIApplication.installProgress(for: bundleID) ?? 0.0
@@ -230,6 +234,17 @@ struct InstallPreviewView: View {
 					viewModel.installProgress = progress
 				}
 
+				if !hasStarted && Date().timeIntervalSince(pollingStart) > noStartTimeout {
+					await MainActor.run {
+						viewModel.status = .broken(InstallVerificationError.notStarted)
+						UIAlertController.showAlertWithOk(
+							title: .localized("Install"),
+							message: InstallVerificationError.notStarted.localizedDescription
+						)
+					}
+					break
+				}
+				
 				if hasStarted && rawProgress == 0 {
 					// Progress also drops to 0 when iOS rejects the app (for example a
 					// mismatched application-identifier), so confirm the installed version.
@@ -283,11 +298,14 @@ struct InstallPreviewView: View {
 // MARK: - Install verification
 enum InstallVerificationError: LocalizedError {
 	case notInstalled(installedVersion: String)
+	case notStarted
 	
 	var errorDescription: String? {
 		switch self {
 		case .notInstalled(let installedVersion):
 			.localized("iOS did not install the new version (version %@ is still installed). The signature may not match the installed app.", arguments: installedVersion)
+		case .notStarted:
+			.localized("iOS did not start the installation. The app may not be signed, or its signature does not match the installed app.")
 		}
 	}
 }

@@ -162,8 +162,9 @@ extension LibraryCellView {
 					UIApplication.openApp(with: id)
 				}
 			}
+			// Always signs automatically before installing (AltServer-style).
 			Button(.localized("Install"), systemImage: "square.and.arrow.down") {
-				selectedInstallAppPresenting = AnyApp(base: app)
+				autoUpdater.signAndInstall(app)
 			}
 			Button(.localized("Re-sign"), systemImage: "signature") {
 				selectedSigningAppPresenting = AnyApp(base: app)
@@ -172,8 +173,9 @@ extension LibraryCellView {
 				selectedInstallAppPresenting = AnyApp(base: app, archive: true)
 			}
 		} else {
+			// Imported apps are signed automatically and installed in one step.
 			Button(.localized("Install"), systemImage: "square.and.arrow.down") {
-				selectedInstallAppPresenting = AnyApp(base: app)
+				autoUpdater.signAndInstall(app)
 			}
 			Button(.localized("Sign"), systemImage: "signature") {
 				selectedSigningAppPresenting = AnyApp(base: app)
@@ -202,24 +204,16 @@ extension LibraryCellView {
 						expiration: nil
 					)
 				}
-			} else if app.isSigned {
+			} else {
+				// One tap, like AltStore: sign automatically and install,
+				// whether the app is imported or already signed.
 				Button {
-					selectedInstallAppPresenting = AnyApp(base: app)
+					autoUpdater.signAndInstall(app)
 				} label: {
 					FRExpirationPillView(
 						title: .localized("Install"),
-						revoked: certRevoked,
-						expiration: certInfo
-					)
-				}
-			} else {
-				Button {
-					selectedSigningAppPresenting = AnyApp(base: app)
-				} label: {
-					FRExpirationPillView(
-						title: .localized("Sign"),
-						revoked: false,
-						expiration: nil
+						revoked: app.isSigned ? certRevoked : false,
+						expiration: app.isSigned ? certInfo : nil
 					)
 				}
 			}

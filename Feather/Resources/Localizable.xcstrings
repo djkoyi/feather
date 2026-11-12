@@ -18968,6 +18968,23 @@
           }
         }
       }
+    },
+    "iOS did not start the installation. The app may not be signed, or its signature does not match the installed app." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iOS did not start the installation. The app may not be signed, or its signature does not match the installed app."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iOS no inició la instalación. La app puede estar sin firmar o su firma no coincide con la app instalada."
+          }
+        }
+      }
     }
   },
   "version" : "1.0"
