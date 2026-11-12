@@ -18951,6 +18951,23 @@
           }
         }
       }
+    },
+    "iOS did not install the new version (version %@ is still installed). The signature may not match the installed app." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iOS did not install the new version (version %@ is still installed). The signature may not match the installed app."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iOS no instaló la versión nueva (sigue instalada la %@). Es posible que la firma no coincida con la app instalada."
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

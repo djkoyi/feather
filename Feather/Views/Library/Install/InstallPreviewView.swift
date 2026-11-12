@@ -231,9 +231,21 @@ struct InstallPreviewView: View {
 				}
 
 				if hasStarted && rawProgress == 0 {
+					// Progress also drops to 0 when iOS rejects the app (for example a
+					// mismatched application-identifier), so confirm the installed version.
+					let rejectedVersion = await _rejectedInstalledVersion(bundleID: bundleID)
+					
 					await MainActor.run {
-						viewModel.installProgress = 1.0
-						viewModel.status = .completed(.success(()))
+						if let rejectedVersion {
+							viewModel.status = .broken(InstallVerificationError.notInstalled(installedVersion: rejectedVersion))
+							UIAlertController.showAlertWithOk(
+								title: .localized("Install"),
+								message: InstallVerificationError.notInstalled(installedVersion: rejectedVersion).localizedDescription
+							)
+						} else {
+							viewModel.installProgress = 1.0
+							viewModel.status = .completed(.success(()))
+						}
 					}
 					break
 				}
@@ -243,7 +255,39 @@ struct InstallPreviewView: View {
 		}
 	}
 
+	/// Returns the version still installed when it is not the one we sent,
+	/// or `nil` when it matches or iOS does not expose the version.
+	private func _rejectedInstalledVersion(bundleID: String) async -> String? {
+		guard let expected = app.version, !expected.isEmpty else { return nil }
+		
+		// Give LaunchServices a moment to register the new bundle.
+		for _ in 0..<6 {
+			let installed = UIApplication.installedVersion(for: bundleID)
+			Logger.misc.info("Install check \(bundleID): installed=\(installed ?? "unknown") expected=\(expected)")
+			guard let installed else {
+				return nil
+			}
+			if installed == expected {
+				return nil
+			}
+			try? await Task.sleep(nanoseconds: 500_000_000)
+		}
+		return UIApplication.installedVersion(for: bundleID)
+	}
+	
 	private func _normalizeInstallProgress(_ rawProgress: Double) -> Double {
 		min(1.0, max(0.0, (rawProgress - 0.6) / 0.3))
+	}
+}
+
+// MARK: - Install verification
+enum InstallVerificationError: LocalizedError {
+	case notInstalled(installedVersion: String)
+	
+	var errorDescription: String? {
+		switch self {
+		case .notInstalled(let installedVersion):
+			.localized("iOS did not install the new version (version %@ is still installed). The signature may not match the installed app.", arguments: installedVersion)
+		}
 	}
 }
