@@ -15,6 +15,8 @@ struct LibraryCellView: View {
 	@Environment(\.editMode) private var editMode
 	@ObservedObject private var updateManager = UpdateManager.shared
 	@ObservedObject private var autoUpdater = AutoUpdater.shared
+	@State private var _isCustomIdentifierPresented = false
+	@State private var _customIdentifier = ""
 
 	var certInfo: Date.ExpirationInfo? {
 		Storage.shared.getCertificate(from: app)?.expiration?.expirationInfo()
@@ -101,6 +103,27 @@ struct LibraryCellView: View {
 				_actions(for: app)
 			}
 		}
+		// Modified apps often ship with the official app's bundle identifier;
+		// this installs them under another one so both can coexist.
+		.alert(.localized("Install with Another Identifier"), isPresented: $_isCustomIdentifierPresented) {
+			TextField(.localized("Bundle Identifier"), text: $_customIdentifier)
+				.textInputAutocapitalization(.never)
+				.autocorrectionDisabled()
+			Button(.localized("Cancel"), role: .cancel) {}
+			Button(.localized("Install")) {
+				let identifier = _customIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+				guard Self._isValidBundleIdentifier(identifier) else {
+					UIAlertController.showAlertWithOk(
+						title: .localized("Install"),
+						message: .localized("Invalid bundle identifier. Use letters, numbers, hyphens and dots, for example com.example.app.")
+					)
+					return
+				}
+				autoUpdater.signAndInstall(app, identifier: identifier)
+			}
+		} message: {
+			Text(verbatim: app.identifier ?? "")
+		}
 	}
 	
 	private var _desc: String {
@@ -166,6 +189,7 @@ extension LibraryCellView {
 			Button(.localized("Install"), systemImage: "square.and.arrow.down") {
 				autoUpdater.signAndInstall(app)
 			}
+			_installWithIdentifierButton(for: app)
 			Button(.localized("Re-sign"), systemImage: "signature") {
 				selectedSigningAppPresenting = AnyApp(base: app)
 			}
@@ -177,6 +201,7 @@ extension LibraryCellView {
 			Button(.localized("Install"), systemImage: "square.and.arrow.down") {
 				autoUpdater.signAndInstall(app)
 			}
+			_installWithIdentifierButton(for: app)
 			Button(.localized("Sign"), systemImage: "signature") {
 				selectedSigningAppPresenting = AnyApp(base: app)
 			}
@@ -219,6 +244,21 @@ extension LibraryCellView {
 			}
 		}
 		.buttonStyle(.borderless)
+	}
+	
+	@ViewBuilder
+	private func _installWithIdentifierButton(for app: AppInfoPresentable) -> some View {
+		Button(.localized("Install with Another Identifier"), systemImage: "character.cursor.ibeam") {
+			_customIdentifier = app.identifier ?? ""
+			_isCustomIdentifierPresented = true
+		}
+	}
+	
+	private static func _isValidBundleIdentifier(_ identifier: String) -> Bool {
+		identifier.range(
+			of: "^[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$",
+			options: .regularExpression
+		) != nil
 	}
 	
 	private func _startUpdate(_ update: AppUpdate) {

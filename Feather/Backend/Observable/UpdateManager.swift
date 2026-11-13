@@ -218,13 +218,14 @@ final class UpdateManager: ObservableObject {
 				let localSourceURL = localApp.source,
 				let localIdentifier = localApp.identifier
 			{
-				sourceAppIdentifier = localIdentifier
+				sourceAppIdentifier = AutoUpdater.originalIdentifier(for: localIdentifier)
 				sourceAppVersion = localApp.version
 				storedSourceURL = localSourceURL
 			} else if let localIdentifier = localApp.identifier {
 				// Imported from a URL or Files: no source is linked. Like AltStore,
-				// look the bundle identifier up in every source.
-				sourceAppIdentifier = localIdentifier
+				// look the bundle identifier up in every source (the original one
+				// when the app was installed under a custom identifier).
+				sourceAppIdentifier = AutoUpdater.originalIdentifier(for: localIdentifier)
 				sourceAppVersion = localApp.version
 				storedSourceURL = nil
 			} else {

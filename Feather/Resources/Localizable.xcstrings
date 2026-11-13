@@ -18985,6 +18985,57 @@
           }
         }
       }
+    },
+    "Install with Another Identifier" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Install with Another Identifier"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instalar con otro identificador"
+          }
+        }
+      }
+    },
+    "Bundle Identifier" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bundle Identifier"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Identificador del paquete"
+          }
+        }
+      }
+    },
+    "Invalid bundle identifier. Use letters, numbers, hyphens and dots, for example com.example.app." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid bundle identifier. Use letters, numbers, hyphens and dots, for example com.example.app."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Identificador no válido. Usa letras, números, guiones y puntos, por ejemplo com.ejemplo.app."
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

@@ -35,12 +35,12 @@ final class AutoUpdater: ObservableObject {
 	/// Work items: update from a source, or sign + install what is in the library.
 	private enum Job {
 		case update(AppUpdate)
-		case install(uuid: String, name: String)
+		case install(uuid: String, name: String, identifier: String?)
 		
 		var uuid: String {
 			switch self {
 			case .update(let update): update.localUUID
-			case .install(let uuid, _): uuid
+			case .install(let uuid, _, _): uuid
 			}
 		}
 	}
@@ -73,11 +73,31 @@ final class AutoUpdater: ObservableObject {
 	/// AltServer-style install: always signs automatically (same certificate as the
 	/// app, or the default one, and the real application identifier) and installs.
 	/// Works the same for imported and signed apps.
-	func signAndInstall(_ app: AppInfoPresentable) {
+	/// - Parameter identifier: Custom bundle identifier (e.g. for a modified app that
+	///   ships with the official app's identifier). `nil` keeps the app's own.
+	func signAndInstall(_ app: AppInfoPresentable, identifier: String? = nil) {
 		guard let uuid = app.uuid, phases[uuid]?.isActive != true else { return }
 		phases[uuid] = .queued
-		_queue.append(.install(uuid: uuid, name: app.name ?? ""))
+		_queue.append(.install(uuid: uuid, name: app.name ?? "", identifier: identifier))
 		_processNext()
+	}
+	
+	// MARK: Custom identifiers
+	
+	private nonisolated static let _originsKey = "Feather.customIdentifierOrigins"
+	
+	/// Original (source) bundle identifier of an app installed under a custom one,
+	/// so update checks still find it in the sources. Returns the input otherwise.
+	nonisolated static func originalIdentifier(for identifier: String) -> String {
+		let origins = UserDefaults.standard.dictionary(forKey: _originsKey) as? [String: String] ?? [:]
+		return origins[identifier] ?? identifier
+	}
+	
+	private static func _rememberOrigin(custom: String, original: String) {
+		guard custom != original else { return }
+		var origins = UserDefaults.standard.dictionary(forKey: _originsKey) as? [String: String] ?? [:]
+		origins[custom] = originalIdentifier(for: original)
+		UserDefaults.standard.set(origins, forKey: _originsKey)
 	}
 
 	/// Updates every app with a pending update (one per app, the signed copy
@@ -147,7 +167,7 @@ final class AutoUpdater: ObservableObject {
 			do {
 				switch next {
 				case .update(let update): try await _run(update)
-				case .install(let uuid, _): try await _runInstall(uuid: uuid)
+				case .install(let uuid, _, let identifier): try await _runInstall(uuid: uuid, identifier: identifier)
 				}
 				phases[next.uuid] = nil
 			} catch {
@@ -159,7 +179,7 @@ final class AutoUpdater: ObservableObject {
 				case .update(let update):
 					title = .localized("Update Failed")
 					subject = "\(update.appName) \(update.remoteVersion)"
-				case .install(_, let name):
+				case .install(_, let name, _):
 					title = .localized("Install")
 					subject = name
 				}
@@ -229,15 +249,20 @@ final class AutoUpdater: ObservableObject {
 		_enqueueInstall(signed)
 	}
 	
-	private func _runInstall(uuid: String) async throws {
+	private func _runInstall(uuid: String, identifier customIdentifier: String?) async throws {
 		guard let app = _app(uuid: uuid) else {
 			throw AutoUpdateError.localAppMissing
 		}
 		
 		let certificate = try _validCertificate(for: app)
+		let identifier = customIdentifier ?? app.identifier
 		
 		phases[uuid] = .signing
-		let signed = try await _sign(app, identifier: app.identifier, certificate: certificate)
+		let signed = try await _sign(app, identifier: identifier, certificate: certificate)
+		
+		if let identifier, let original = app.identifier {
+			Self._rememberOrigin(custom: identifier, original: original)
+		}
 		
 		// A re-signed copy replaces the previous signed one; imported apps are
 		// kept unless the user chose to delete them after signing.
