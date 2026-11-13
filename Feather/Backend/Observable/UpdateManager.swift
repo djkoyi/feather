@@ -22,6 +22,15 @@ struct AppUpdate: Identifiable, Equatable {
 	let sourceProvenance: SourceAppProvenance
 	/// The local copy is a signed app (the one that is installed on the device).
 	let isSigned: Bool
+	/// Bundle identifier the local copy has (differs from `bundleIdentifier` when
+	/// it was installed under a custom identifier, e.g. a modified app).
+	let installedIdentifier: String
+	
+	/// Key of the installed app: two signed copies of the same source app with
+	/// different identifiers are two different apps on the device.
+	var appKey: String {
+		isSigned ? "signed|\(installedIdentifier)" : "imported|\(bundleIdentifier)"
+	}
 }
 
 @MainActor
@@ -66,7 +75,9 @@ final class UpdateManager: ObservableObject {
 		}
 		
 		let repositories = await _fetchRepositories(from: sources)
-		_signedBundleIDs = Set(localApps.filter(\.isSigned).compactMap(\.identifier))
+		_signedBundleIDs = Set(
+			localApps.filter(\.isSigned).compactMap(\.identifier).map(AutoUpdater.originalIdentifier(for:))
+		)
 		updates = _findUpdates(repositories: repositories, localApps: localApps)
 		_signedBundleIDs.formUnion(updates.values.filter(\.isSigned).map(\.bundleIdentifier))
 
@@ -104,21 +115,23 @@ final class UpdateManager: ObservableObject {
 	/// One update per app, the way AltStore shows them. When an app has a signed
 	/// copy (the one installed on the device) only signed copies count; imported
 	/// copies of that app are just cached IPAs and are not announced or auto-updated.
+	/// Every signed copy counts on its own (the official-id copy and a custom-id
+	/// copy of a modified app are both installed and both get updated).
 	var actionableUpdates: [AppUpdate] {
-		var byBundle: [String: AppUpdate] = [:]
+		var byApp: [String: AppUpdate] = [:]
 		for update in updates.values.sorted(by: { $0.localUUID < $1.localUUID }) {
 			if update.isSigned {
-				if byBundle[update.bundleIdentifier]?.isSigned != true {
-					byBundle[update.bundleIdentifier] = update
+				if byApp[update.appKey] == nil {
+					byApp[update.appKey] = update
 				}
 			} else if
 				!_signedBundleIDs.contains(update.bundleIdentifier),
-				byBundle[update.bundleIdentifier] == nil
+				byApp[update.appKey] == nil
 			{
-				byBundle[update.bundleIdentifier] = update
+				byApp[update.appKey] = update
 			}
 		}
-		return byBundle.values.sorted { $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending }
+		return byApp.values.sorted { $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending }
 	}
 	
 	/// Number of apps with an actionable update (badge and "Update All").
@@ -278,7 +291,8 @@ final class UpdateManager: ObservableObject {
 					downloadURL: downloadURL,
 					sourceURL: sourceURL,
 					sourceProvenance: provenance,
-					isSigned: localApp.isSigned
+					isSigned: localApp.isSigned,
+					installedIdentifier: localApp.identifier ?? sourceAppIdentifier
 				)
 				break
 			}

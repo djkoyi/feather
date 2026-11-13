@@ -325,7 +325,7 @@ final class AutoUpdater: ObservableObject {
 	
 	private func _finish(_ update: AppUpdate) {
 		UpdateManager.shared.removeUpdate(localUUID: update.localUUID)
-		UpdateNotifier.shared.clearDelivered(for: update.bundleIdentifier)
+		UpdateNotifier.shared.clearDelivered(for: update.appKey)
 	}
 
 	private func _enqueueInstall(_ app: AppInfoPresentable) {

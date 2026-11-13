@@ -76,14 +76,16 @@ final class UpdateNotifier: NSObject, ObservableObject {
 		for update in fresh {
 			let content = UNMutableNotificationContent()
 			content.title = .localized("Update Available")
-			content.body = "\(update.appName) \(update.remoteVersion)"
+			content.body = update.installedIdentifier == update.bundleIdentifier
+				? "\(update.appName) \(update.remoteVersion)"
+				: "\(update.appName) \(update.remoteVersion) (\(update.installedIdentifier))"
 			content.sound = .default
 			content.categoryIdentifier = Self._categoryID
 			content.threadIdentifier = "feather.updates"
 			content.userInfo = [Self._uuidInfoKey: update.localUUID]
 
 			let request = UNNotificationRequest(
-				identifier: "feather.update.\(update.bundleIdentifier)",
+				identifier: "feather.update.\(update.appKey)",
 				content: content,
 				trigger: nil
 			)
@@ -99,8 +101,8 @@ final class UpdateNotifier: NSObject, ObservableObject {
 		UserDefaults.standard.set(Array(notified), forKey: Self._notifiedKey)
 	}
 
-	func clearDelivered(for bundleIdentifier: String) {
-		_center.removeDeliveredNotifications(withIdentifiers: ["feather.update.\(bundleIdentifier)"])
+	func clearDelivered(for appKey: String) {
+		_center.removeDeliveredNotifications(withIdentifiers: ["feather.update.\(appKey)"])
 	}
 
 	func refreshBadge(count: Int) {
@@ -116,14 +118,13 @@ final class UpdateNotifier: NSObject, ObservableObject {
 	}
 
 	private func _notifiedToken(for update: AppUpdate) -> String {
-		"\(update.bundleIdentifier)|\(update.remoteVersion)"
+		"\(update.appKey)|\(update.remoteVersion)"
 	}
 
-	/// Signed and imported copies of the same app produce the same update;
-	/// announce it once.
+	/// One notification per installed app (see `AppUpdate.appKey`).
 	private func _uniqueByBundle(_ updates: [AppUpdate]) -> [AppUpdate] {
 		var seen = Set<String>()
-		return updates.filter { seen.insert($0.bundleIdentifier).inserted }
+		return updates.filter { seen.insert($0.appKey).inserted }
 	}
 }
 
