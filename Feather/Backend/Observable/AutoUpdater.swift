@@ -203,6 +203,9 @@ final class AutoUpdater: ObservableObject {
 		// Resolve everything we need from the current copy before deleting it.
 		let installedIdentifier = localApp.identifier
 		let certificate = try _validCertificate(for: localApp)
+		// If the library has the IPA in Imported, the new download takes its place there.
+		let keepsImportedCopy = _hasImportedCopy(identifier: update.bundleIdentifier)
+			|| !localApp.isSigned
 		
 		// 1. Download
 		phases[update.localUUID] = .downloading(0)
@@ -240,8 +243,11 @@ final class AutoUpdater: ObservableObject {
 			throw error
 		}
 		
-		// The intermediate copy and the old one are replaced by the signed update.
-		Storage.shared.deleteApp(for: imported)
+		// The old copies were already replaced by the new ones (one per section);
+		// the downloaded IPA only stays in Imported if there was one there.
+		if !keepsImportedCopy {
+			Storage.shared.deleteApp(for: imported)
+		}
 		Storage.shared.deleteApp(for: localApp)
 		_finish(update)
 		
@@ -255,18 +261,22 @@ final class AutoUpdater: ObservableObject {
 		}
 		
 		let certificate = try _validCertificate(for: app)
-		let identifier = customIdentifier ?? app.identifier
+		// Read before signing: the new signed copy replaces an older one with the
+		// same identifier, which can be this same app.
+		let original = app.identifier
+		let wasSigned = app.isSigned
+		let identifier = customIdentifier ?? original
 		
 		phases[uuid] = .signing
 		let signed = try await _sign(app, identifier: identifier, certificate: certificate)
 		
-		if let identifier, let original = app.identifier {
+		if let identifier, let original {
 			Self._rememberOrigin(custom: identifier, original: original)
 		}
 		
 		// A re-signed copy replaces the previous signed one; imported apps are
 		// kept unless the user chose to delete them after signing.
-		if app.isSigned || OptionsManager.shared.options.post_deleteAppAfterSigned {
+		if wasSigned || OptionsManager.shared.options.post_deleteAppAfterSigned {
 			Storage.shared.deleteApp(for: app)
 		}
 		
@@ -308,6 +318,13 @@ final class AutoUpdater: ObservableObject {
 			throw AutoUpdateError.signFailed
 		}
 		return signed
+	}
+	
+	private func _hasImportedCopy(identifier: String) -> Bool {
+		let request: NSFetchRequest<Imported> = Imported.fetchRequest()
+		request.predicate = NSPredicate(format: "identifier == %@", identifier)
+		request.fetchLimit = 1
+		return ((try? Storage.shared.context.count(for: request)) ?? 0) > 0
 	}
 	
 	private func _validCertificate(for app: AppInfoPresentable) throws -> CertificatePair {

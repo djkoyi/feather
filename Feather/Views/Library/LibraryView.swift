@@ -49,6 +49,26 @@ struct LibraryView: View {
 		filteredAndSortedApps(from: _importedApps)
 	}
 	
+	/// Apps with a pending update go first, in their own section.
+	private var _updateApps: [AnyApp] {
+		var apps: [AppInfoPresentable] = []
+		if _selectedScope == .all || _selectedScope == .signed {
+			apps += _filteredSignedApps.filter { updateManager.update(for: $0) != nil }
+		}
+		if _selectedScope == .all || _selectedScope == .imported {
+			apps += _filteredImportedApps.filter { updateManager.update(for: $0) != nil }
+		}
+		return apps.map { AnyApp(base: $0) }
+	}
+	
+	private var _upToDateSignedApps: [Signed] {
+		_filteredSignedApps.filter { updateManager.update(for: $0) == nil }
+	}
+	
+	private var _upToDateImportedApps: [Imported] {
+		_filteredImportedApps.filter { updateManager.update(for: $0) == nil }
+	}
+	
 	// MARK: Fetch
 	@FetchRequest(
 		entity: Signed.entity(),
@@ -72,44 +92,43 @@ struct LibraryView: View {
 	var body: some View {
 		NBNavigationView(.localized("Library")) {
 			NBListAdaptable {
+				let updateApps = _updateApps
+				if !updateApps.isEmpty {
+					Section {
+						ForEach(updateApps) { item in
+							_cell(for: item.base)
+						}
+					} header: {
+						_updatesHeader(count: updateApps.count)
+					}
+				}
+				
 				if
-					!_filteredSignedApps.isEmpty,
+					!_upToDateSignedApps.isEmpty,
 					_selectedScope == .all || _selectedScope == .signed
 				{
 					NBSection(
 						.localized("Signed"),
-						secondary: _filteredSignedApps.count.description
+						secondary: _upToDateSignedApps.count.description,
+						systemName: "checkmark.seal.fill"
 					) {
-						ForEach(_filteredSignedApps, id: \.uuid) { app in
-							LibraryCellView(
-								app: app,
-								selectedInfoAppPresenting: $_selectedInfoAppPresenting,
-								selectedSigningAppPresenting: $_selectedSigningAppPresenting,
-								selectedInstallAppPresenting: $_selectedInstallAppPresenting,
-								selectedAppUUIDs: $_selectedAppUUIDs
-							)
-							.compatMatchedTransitionSource(id: app.uuid ?? "", ns: _namespace)
+						ForEach(_upToDateSignedApps, id: \.uuid) { app in
+							_cell(for: app)
 						}
 					}
 				}
 				
 				if
-					!_filteredImportedApps.isEmpty,
+					!_upToDateImportedApps.isEmpty,
 					_selectedScope == .all || _selectedScope == .imported
 				{
 					NBSection(
 						.localized("Imported"),
-						secondary: _filteredImportedApps.count.description
+						secondary: _upToDateImportedApps.count.description,
+						systemName: "tray.and.arrow.down.fill"
 					) {
-						ForEach(_filteredImportedApps, id: \.uuid) { app in
-							LibraryCellView(
-								app: app,
-								selectedInfoAppPresenting: $_selectedInfoAppPresenting,
-								selectedSigningAppPresenting: $_selectedSigningAppPresenting,
-								selectedInstallAppPresenting: $_selectedInstallAppPresenting,
-								selectedAppUUIDs: $_selectedAppUUIDs
-							)
-							.compatMatchedTransitionSource(id: app.uuid ?? "", ns: _namespace)
+						ForEach(_upToDateImportedApps, id: \.uuid) { app in
+							_cell(for: app)
 						}
 					}
 				}
@@ -155,21 +174,6 @@ struct LibraryView: View {
 						_bulkDeleteSelectedApps()
 					}
 				} else {
-					if updateManager.distinctUpdateCount > 0 {
-						ToolbarItem(placement: .topBarLeading) {
-							Button {
-								AutoUpdater.shared.updateAll()
-							} label: {
-								Label(
-									.localized("Update All") + " (\(updateManager.distinctUpdateCount))",
-									systemImage: "arrow.down.circle"
-								)
-								.labelStyle(.titleAndIcon)
-							}
-							.accessibilityLabel(.localized("Update All"))
-						}
-					}
-					
 					ToolbarItem(placement: .topBarTrailing) {
 						Button {
 							Task {
@@ -258,6 +262,48 @@ struct LibraryView: View {
 
 // MARK: - Extension: View
 extension LibraryView {
+	private func _cell(for app: AppInfoPresentable) -> some View {
+		LibraryCellView(
+			app: app,
+			selectedInfoAppPresenting: $_selectedInfoAppPresenting,
+			selectedSigningAppPresenting: $_selectedSigningAppPresenting,
+			selectedInstallAppPresenting: $_selectedInstallAppPresenting,
+			selectedAppUUIDs: $_selectedAppUUIDs
+		)
+		.compatMatchedTransitionSource(id: app.uuid ?? "", ns: _namespace)
+	}
+	
+	private func _updatesHeader(count: Int) -> some View {
+		HStack(alignment: .center, spacing: 6) {
+			Image(systemName: "arrow.down.circle.fill")
+				.font(.system(size: 12))
+				.foregroundStyle(Color.accentColor)
+				.offset(y: -2)
+			Text(.localized("Updates"))
+				.font(.title2)
+				.fontWeight(.bold)
+				.foregroundStyle(.primary)
+			Spacer()
+			if !_editMode.isEditing {
+				Button {
+					AutoUpdater.shared.updateAll()
+				} label: {
+					Text(verbatim: .localized("Update All") + " (\(count))")
+						.font(.subheadline.weight(.semibold))
+						.foregroundStyle(.white)
+						.padding(.horizontal, 12)
+						.padding(.vertical, 5)
+						.background(Capsule().fill(Color.accentColor))
+				}
+				.buttonStyle(.borderless)
+				.textCase(nil)
+				.accessibilityLabel(.localized("Update All"))
+			}
+		}
+		.textCase(nil)
+		.offset(y: 2)
+	}
+	
 	@ViewBuilder
 	private func _importActions() -> some View {
 		Button(.localized("Import from Files"), systemImage: "folder") {

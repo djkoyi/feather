@@ -181,6 +181,9 @@ final class SigningHandler: NSObject {
 			to: _uuid,
 			kind: .signed
 		)
+		
+		// Only the new version stays in Signed (per installed identifier).
+		Storage.shared.removeOlderCopies(identifier: Bundle(url: appUrl)?.bundleIdentifier, keeping: _uuid, signed: true)
 	}
 	
 	private func _directory() async throws -> URL {

@@ -194,6 +194,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 		_createDocumentsDirectories()
 		ResetView.clearWorkCache()
 		_addDefaultCertificates()
+		Storage.shared.removeOlderDuplicates()
 		UpdateNotifier.shared.configure()
 		#if !targetEnvironment(macCatalyst)
 		UpdateRefreshScheduler.register()

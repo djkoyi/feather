@@ -52,7 +52,7 @@ struct LibraryCellView: View {
 		let isRegular = horizontalSizeClass != .compact
 		let isEditing = editMode?.wrappedValue == .active
 		
-		HStack(spacing: 18) {
+		HStack(spacing: 14) {
 			if isEditing {
 				Button {
 					_toggleSelection()
@@ -66,17 +66,15 @@ struct LibraryCellView: View {
 			
 			_appIcon(for: app)
 			
-			NBTitleWithSubtitleView(
-				title: app.name ?? .localized("Unknown"),
-				subtitle: _desc,
-				linelimit: 0
-			)
+			_details
+				.frame(maxWidth: .infinity, alignment: .leading)
 			
 			if !isEditing {
 				_buttonActions(for: app)
 			}
 		}
 		.padding(isRegular ? 12 : 0)
+		.padding(.vertical, isRegular ? 0 : 6)
 		.background(
 			isRegular
 				? RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -126,11 +124,54 @@ struct LibraryCellView: View {
 		}
 	}
 	
-	private var _desc: String {
-		if let version = app.version, let id = app.identifier {
-			return "\(version) • \(id)"
-		} else {
-			return .localized("Unknown")
+	/// Name, version (current -> new when there is an update), identifier and
+	/// how long the certificate of the signed copy is still valid.
+	private var _details: some View {
+		VStack(alignment: .leading, spacing: 3) {
+			Text(app.name ?? .localized("Unknown"))
+				.font(.headline)
+				.lineLimit(1)
+			
+			HStack(spacing: 4) {
+				Text(verbatim: app.version ?? "?")
+					.foregroundStyle(.secondary)
+				if let update = updateManager.update(for: app) {
+					Image(systemName: "arrow.right")
+						.font(.caption2.weight(.bold))
+						.foregroundStyle(.secondary)
+					Text(verbatim: update.remoteVersion)
+						.fontWeight(.semibold)
+						.foregroundStyle(Color.accentColor)
+				}
+			}
+			.font(.subheadline)
+			.lineLimit(1)
+			.monospacedDigit()
+			
+			if let identifier = app.identifier {
+				Text(verbatim: identifier)
+					.font(.caption)
+					.foregroundStyle(.tertiary)
+					.lineLimit(1)
+					.truncationMode(.middle)
+			}
+			
+			if app.isSigned {
+				_certificateStatus
+			}
+		}
+	}
+	
+	@ViewBuilder
+	private var _certificateStatus: some View {
+		if certRevoked {
+			Label(.localized("Revoked"), systemImage: "xmark.seal.fill")
+				.font(.caption2.weight(.semibold))
+				.foregroundStyle(.red)
+		} else if let certInfo {
+			Label(certInfo.formatted, systemImage: certInfo.icon)
+				.font(.caption2.weight(.semibold))
+				.foregroundStyle(certInfo.color)
 		}
 	}
 }
@@ -212,22 +253,13 @@ extension LibraryCellView {
 	private func _buttonActions(for app: AppInfoPresentable) -> some View {
 		Group {
 			if let uuid = app.uuid, let phase = autoUpdater.phases[uuid], phase.isActive {
-				FRExpirationPillView(
-					title: _title(for: phase),
-					revoked: false,
-					expiration: nil
-				)
-				.monospacedDigit()
+				_phaseIndicator(phase)
 			} else if let update = updateManager.update(for: app) {
 				// One tap: download, sign with the same certificate and install.
 				Button {
 					_startUpdate(update)
 				} label: {
-					FRExpirationPillView(
-						title: .localized("Update"),
-						revoked: false,
-						expiration: nil
-					)
+					_pill(.localized("Update"), prominent: true)
 				}
 			} else {
 				// One tap, like AltStore: sign automatically and install,
@@ -235,15 +267,54 @@ extension LibraryCellView {
 				Button {
 					autoUpdater.signAndInstall(app)
 				} label: {
-					FRExpirationPillView(
-						title: .localized("Install"),
-						revoked: app.isSigned ? certRevoked : false,
-						expiration: app.isSigned ? certInfo : nil
-					)
+					_pill(.localized("Install"), prominent: false)
 				}
 			}
 		}
 		.buttonStyle(.borderless)
+	}
+	
+	private func _pill(_ title: String, prominent: Bool) -> some View {
+		Text(title)
+			.font(.subheadline.weight(.bold))
+			.lineLimit(1)
+			.foregroundStyle(prominent ? Color.white : Color.accentColor)
+			.padding(.horizontal, 14)
+			.padding(.vertical, 6)
+			.background(
+				Capsule().fill(prominent ? Color.accentColor : Color.accentColor.opacity(0.14))
+			)
+	}
+	
+	/// Download ring with percentage, or a small spinner while preparing/signing.
+	@ViewBuilder
+	private func _phaseIndicator(_ phase: AutoUpdater.Phase) -> some View {
+		if case .downloading(let progress) = phase {
+			ZStack {
+				Circle()
+					.stroke(Color.accentColor.opacity(0.18), lineWidth: 3)
+				Circle()
+					.trim(from: 0, to: max(0.02, progress))
+					.stroke(Color.accentColor, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+					.rotationEffect(.degrees(-90))
+					.animation(.linear(duration: 0.2), value: progress)
+				Text(verbatim: "\(Int(progress * 100))")
+					.font(.system(size: 10, weight: .bold))
+					.monospacedDigit()
+					.foregroundStyle(Color.accentColor)
+			}
+			.frame(width: 34, height: 34)
+			.accessibilityLabel(_title(for: phase))
+		} else {
+			HStack(spacing: 6) {
+				ProgressView()
+					.controlSize(.small)
+				Text(_title(for: phase))
+					.font(.caption.weight(.semibold))
+					.foregroundStyle(.secondary)
+					.lineLimit(1)
+			}
+		}
 	}
 	
 	@ViewBuilder

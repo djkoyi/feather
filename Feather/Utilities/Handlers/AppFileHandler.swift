@@ -134,6 +134,9 @@ final class AppFileHandler: NSObject, @unchecked Sendable {
 				provenance: sourceProvenance
 			)
 		}
+		
+		// Only the new version stays in Imported.
+		Storage.shared.removeOlderCopies(identifier: bundle?.bundleIdentifier, keeping: _uuid, signed: false)
 	}
 	
 	private func _directory() async throws -> URL {
