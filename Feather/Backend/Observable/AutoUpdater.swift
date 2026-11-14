@@ -128,7 +128,7 @@ final class AutoUpdater: ObservableObject {
 
 		// Background refresh only notifies; the update itself runs with Feather open.
 		if
-			UserDefaults.standard.bool(forKey: Self.autoUpdateOnOpenKey),
+			(UserDefaults.standard.object(forKey: Self.autoUpdateOnOpenKey) as? Bool ?? true),
 			UIApplication.shared.applicationState == .active
 		{
 			updateAll()
