@@ -285,6 +285,12 @@ struct LibraryView: View {
 			.onAppear {
 				_installedMonitor.seedIfNeeded(signedIdentifiers: _signedApps.compactMap(\.identifier))
 			}
+			.task {
+				guard UpdateManager.isAutoCheckEnabled, !updateManager.isChecking else { return }
+				let last = updateManager.lastCheckedDate ?? .distantPast
+				guard Date().timeIntervalSince(last) > 30 else { return }
+				await _checkForUpdates()
+			}
 		}
 	}
 }
