@@ -27,6 +27,8 @@ struct LibraryCellView: View {
 	}
 	
 	var app: AppInfoPresentable
+	/// Signed copy that is on the device: its main action is Open, not Install.
+	var isInstalled: Bool = false
 	@Binding var selectedInfoAppPresenting: AnyApp?
 	@Binding var selectedSigningAppPresenting: AnyApp?
 	@Binding var selectedInstallAppPresenting: AnyApp?
@@ -223,11 +225,14 @@ extension LibraryCellView {
 		if app.isSigned {
 			if let id = app.identifier {
 				Button(.localized("Open"), systemImage: "app.badge.checkmark") {
-					UIApplication.openApp(with: id)
+					_open(id)
 				}
 			}
 			// Always signs automatically before installing (AltServer-style).
-			Button(.localized("Install"), systemImage: "square.and.arrow.down") {
+			Button(
+				isInstalled ? .localized("Reinstall") : .localized("Install"),
+				systemImage: isInstalled ? "arrow.clockwise" : "square.and.arrow.down"
+			) {
 				autoUpdater.signAndInstall(app)
 			}
 			_installWithIdentifierButton(for: app)
@@ -260,6 +265,12 @@ extension LibraryCellView {
 					_startUpdate(update)
 				} label: {
 					_pill(.localized("Update"), prominent: true)
+				}
+			} else if isInstalled, let identifier = app.identifier {
+				Button {
+					_open(identifier)
+				} label: {
+					_pill(.localized("Open"), prominent: false)
 				}
 			} else {
 				// One tap, like AltStore: sign automatically and install,
@@ -330,6 +341,17 @@ extension LibraryCellView {
 			of: "^[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$",
 			options: .regularExpression
 		) != nil
+	}
+	
+	/// If the app is gone from the device it moves back to Signed (Install).
+	private func _open(_ identifier: String) {
+		let title = app.name ?? .localized("Open")
+		InstalledAppsMonitor.shared.open(identifier) {
+			UIAlertController.showAlertWithOk(
+				title: title,
+				message: .localized("This app is not installed on this device. Tap Install to install it again.")
+			)
+		}
 	}
 	
 	private func _startUpdate(_ update: AppUpdate) {

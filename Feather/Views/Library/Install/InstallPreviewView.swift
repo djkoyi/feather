@@ -260,6 +260,7 @@ struct InstallPreviewView: View {
 						} else {
 							viewModel.installProgress = 1.0
 							viewModel.status = .completed(.success(()))
+							InstalledAppsMonitor.shared.markInstalled(app.identifier)
 						}
 					}
 					break

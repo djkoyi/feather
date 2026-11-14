@@ -13,6 +13,7 @@ import NimbleViews
 struct LibraryView: View {
 	@StateObject var downloadManager = DownloadManager.shared
 	@StateObject var updateManager = UpdateManager.shared
+	@StateObject private var _installedMonitor = InstalledAppsMonitor.shared
 	
 	@State private var _selectedInfoAppPresenting: AnyApp?
 	@State private var _selectedSigningAppPresenting: AnyApp?
@@ -65,6 +66,16 @@ struct LibraryView: View {
 		_filteredSignedApps.filter { updateManager.update(for: $0) == nil }
 	}
 	
+	/// Signed and on the device.
+	private var _installedApps: [Signed] {
+		_upToDateSignedApps.filter { _installedMonitor.isInstalled($0.identifier) }
+	}
+	
+	/// Signed but not on the device (removed, or never installed).
+	private var _signedOnlyApps: [Signed] {
+		_upToDateSignedApps.filter { !_installedMonitor.isInstalled($0.identifier) }
+	}
+	
 	private var _upToDateImportedApps: [Imported] {
 		_filteredImportedApps.filter { updateManager.update(for: $0) == nil }
 	}
@@ -104,15 +115,30 @@ struct LibraryView: View {
 				}
 				
 				if
-					!_upToDateSignedApps.isEmpty,
+					!_installedApps.isEmpty,
+					_selectedScope == .all || _selectedScope == .signed
+				{
+					NBSection(
+						.localized("Installed"),
+						secondary: _installedApps.count.description,
+						systemName: "iphone"
+					) {
+						ForEach(_installedApps, id: \.uuid) { app in
+							_cell(for: app)
+						}
+					}
+				}
+				
+				if
+					!_signedOnlyApps.isEmpty,
 					_selectedScope == .all || _selectedScope == .signed
 				{
 					NBSection(
 						.localized("Signed"),
-						secondary: _upToDateSignedApps.count.description,
-						systemName: "checkmark.seal.fill"
+						secondary: _signedOnlyApps.count.description,
+						systemName: "signature"
 					) {
-						ForEach(_upToDateSignedApps, id: \.uuid) { app in
+						ForEach(_signedOnlyApps, id: \.uuid) { app in
 							_cell(for: app)
 						}
 					}
@@ -123,9 +149,9 @@ struct LibraryView: View {
 					_selectedScope == .all || _selectedScope == .imported
 				{
 					NBSection(
-						.localized("Imported"),
+						.localized("Downloaded"),
 						secondary: _upToDateImportedApps.count.description,
-						systemName: "tray.and.arrow.down.fill"
+						systemName: "arrow.down.circle"
 					) {
 						ForEach(_upToDateImportedApps, id: \.uuid) { app in
 							_cell(for: app)
@@ -256,6 +282,9 @@ struct LibraryView: View {
 			.onChange(of: updateManager.isChecking) { isChecking in
 				_handleUpdateCheckStateChange(isChecking)
 			}
+			.onAppear {
+				_installedMonitor.seedIfNeeded(signedIdentifiers: _signedApps.compactMap(\.identifier))
+			}
 		}
 	}
 }
@@ -265,6 +294,7 @@ extension LibraryView {
 	private func _cell(for app: AppInfoPresentable) -> some View {
 		LibraryCellView(
 			app: app,
+			isInstalled: app.isSigned && _installedMonitor.isInstalled(app.identifier),
 			selectedInfoAppPresenting: $_selectedInfoAppPresenting,
 			selectedSigningAppPresenting: $_selectedSigningAppPresenting,
 			selectedInstallAppPresenting: $_selectedInstallAppPresenting,
@@ -388,7 +418,7 @@ extension LibraryView {
 			switch self {
 			case .all: return .localized("All")
 			case .signed: return .localized("Signed")
-			case .imported: return .localized("Imported")
+			case .imported: return .localized("Downloaded")
 			}
 		}
 	}

@@ -8370,6 +8370,12 @@
             "state" : "translated",
             "value" : "已导入"
           }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Descargadas"
+          }
         }
       }
     },
@@ -8692,7 +8698,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Install"
+            "value" : "Instalar"
           }
         },
         "fr" : {
@@ -11024,6 +11030,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "打开"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abrir"
           }
         }
       }
@@ -15532,6 +15544,12 @@
             "state" : "translated",
             "value" : "已签名"
           }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Firmadas"
+          }
         }
       }
     },
@@ -19033,6 +19051,46 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Identificador no válido. Usa letras, números, guiones y puntos, por ejemplo com.ejemplo.app."
+          }
+        }
+      }
+    },
+    "Installed" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instaladas"
+          }
+        }
+      }
+    },
+    "Downloaded" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Descargadas"
+          }
+        }
+      }
+    },
+    "Reinstall" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reinstalar"
+          }
+        }
+      }
+    },
+    "This app is not installed on this device. Tap Install to install it again." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta app no está instalada en el iPhone. Toca Instalar para instalarla de nuevo."
           }
         }
       }

@@ -10,7 +10,8 @@ import UIKit.UIApplication
 extension UIApplication {
 	/// Opens an app with an identifier
 	/// - Parameter identifier: Application identifier
-	static public func openApp(with identifier: String) {
+	@discardableResult
+	static public func openApp(with identifier: String) -> Bool {
 		let classNameBase64 = "TFNBcHBsaWNhdGlvbldvcmtzcGFjZQ==" 			// LSApplicationWorkspace
 		let defaultSelectorBase64 = "ZGVmYXVsdFdvcmtzcGFjZQ=="     			// defaultWorkspace
 		let openSelectorBase64 = "b3BlbkFwcGxpY2F0aW9uV2l0aEJ1bmRsZUlEOg==" // openApplicationWithBundleID:
@@ -23,17 +24,23 @@ extension UIApplication {
 			let defaultSelector = String(data: defaultSelectorData, encoding: .utf8),
 			let openSelector = String(data: openSelectorData, encoding: .utf8)
 		else {
-			return
+			return false
 		}
 		
 		guard
 			let workspaceClass = NSClassFromString(className) as? NSObject.Type,
-			let workspace = workspaceClass.perform(NSSelectorFromString(defaultSelector))?.takeUnretainedValue()
+			let workspace = workspaceClass.perform(NSSelectorFromString(defaultSelector))?.takeUnretainedValue() as? NSObject
 		else {
-			return
+			return false
 		}
 		
-		_ = workspace.perform(NSSelectorFromString(openSelector), with: identifier)
+		let selector = NSSelectorFromString(openSelector)
+		guard workspace.responds(to: selector) else { return false }
+		// Returns a BOOL (NO when the app is not installed), so it is called
+		// through its C signature: perform(_:with:) only handles objects.
+		typealias Function = @convention(c) (AnyObject, Selector, NSString) -> Bool
+		let function = unsafeBitCast(workspace.method(for: selector), to: Function.self)
+		return function(workspace, selector, identifier as NSString)
 	}
 	
 	/// Returns install progress for a bundle identifier (0.0 – 1.0)
