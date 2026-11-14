@@ -14,7 +14,7 @@ import OSLog
 import os
 
 enum UpdateRefreshScheduler {
-	private static let _minimumInterval: TimeInterval = 60 * 60 * 2
+	private static let _minimumInterval: TimeInterval = 60 * 30
 	private static var _isRegistered = false
 	private static var _identifier: String {
 		"\(Bundle.main.bundleIdentifier!).updateCheck"

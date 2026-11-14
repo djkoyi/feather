@@ -22,7 +22,7 @@ struct FeatherApp: App {
 	let storage = Storage.shared
 	
 	/// Minimum time between automatic foreground checks.
-	private let _foregroundCheckInterval: TimeInterval = 60 * 10
+	private let _foregroundCheckInterval: TimeInterval = 60
 	
 	var body: some Scene {
 		WindowGroup {
