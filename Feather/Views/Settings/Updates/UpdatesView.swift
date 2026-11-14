@@ -12,7 +12,7 @@ import NimbleViews
 struct UpdatesView: View {
 	@AppStorage(UpdateManager.autoCheckEnabledKey) private var _autoCheck: Bool = true
 	@AppStorage(UpdateNotifier.notificationsEnabledKey) private var _notifications: Bool = true
-	@AppStorage(AutoUpdater.autoUpdateOnOpenKey) private var _autoUpdateOnOpen: Bool = false
+	@AppStorage(AutoUpdater.autoUpdateOnOpenKey) private var _autoUpdateOnOpen: Bool = true
 
 	@ObservedObject private var _updateManager = UpdateManager.shared
 
